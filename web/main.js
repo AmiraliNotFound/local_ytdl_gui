@@ -266,7 +266,7 @@ function handleActionButtonClick() {
         actionBtn.textContent = "Downloading...";
         
         // Reset progress bars
-        updateProgress(0, "Current File: Preparing...");
+        update_progress(0, "Current File: Preparing...");
         playlistProgressContainer.style.display = "none";
         
         if (typeof eel !== 'undefined') {
