@@ -4,10 +4,10 @@ const originalError = console.error;
 const originalWarn = console.warn;
 
 function sendToPython(type, args) {
-    const msg = `[JS ${type}] ${args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ')}\n`;
-    if (typeof eel !== 'undefined') {
+    if (typeof eel !== 'undefined' && typeof eel.js_log === 'function') {
+        const msg = `[JS ${type}] ${args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ')}`;
         try {
-            eel.append_log(msg);
+            eel.js_log(msg);
         } catch (e) {}
     }
 }
@@ -27,10 +27,10 @@ console.warn = function(...args) {
 
 // Global Javascript Error Logger to Python Backend
 window.onerror = function(message, source, lineno, colno, error) {
-    const errorMsg = `[JS ERROR] ${message} at ${source}:${lineno}:${colno}\n`;
-    if (typeof eel !== 'undefined') {
+    const errorMsg = `[JS ERROR] ${message} at ${source}:${lineno}:${colno}`;
+    if (typeof eel !== 'undefined' && typeof eel.js_log === 'function') {
         try {
-            eel.append_log(errorMsg);
+            eel.js_log(errorMsg);
         } catch (e) {}
     }
     return false;

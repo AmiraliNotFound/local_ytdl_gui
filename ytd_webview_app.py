@@ -498,6 +498,10 @@ def start_download(url, config_from_ui):
 def save_config(config):
     return api.save_config(config)
 
+@eel.expose
+def js_log(message):
+    log_debug(message)
+
 
 if __name__ == "__main__":
     log_debug("Backend main startup initiated.")
