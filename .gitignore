@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project specific ignores
+config.json
+youtube_cookies.txt
+*cookies*.txt
+ffmpeg.exe
+ffprobe.exe
+
+# Downloaded media formats and temp parts
+*.mp4
+*.webm
+*.mkv
+*.part
+*.ytdl
+*.mhtml
