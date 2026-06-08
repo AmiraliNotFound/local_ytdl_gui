@@ -9,6 +9,7 @@ youtube_cookies.txt
 *cookies*.txt
 ffmpeg.exe
 ffprobe.exe
+*.spec
 
 # Downloaded media formats and temp parts
 *.mp4
@@ -17,3 +18,11 @@ ffprobe.exe
 *.part
 *.ytdl
 *.mhtml
+
+# Distribution / packaging / virtual environments
+build/
+dist/
+venv/
+.venv/
+.vscode/
+.idea/

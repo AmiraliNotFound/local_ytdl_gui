@@ -1,8 +1,8 @@
 # YouTube Downloader Pro
 
-A modern, high-performance desktop application built with **Python**, **CustomTkinter**, and **yt-dlp** designed for downloading YouTube videos, audio, and playlists in maximum quality (up to 1080p, 4K, and 8K). 
+A modern, high-performance desktop application built with a web-based **HTML/CSS/JS frontend**, **Python (pywebview) backend**, and the **yt-dlp** engine. It is designed for downloading YouTube videos, audio, and playlists in maximum quality (up to 1080p, 4K, and 8K).
 
-It features an elegant UI with built-in theme support (Dark/Light/System) and advanced authentication bypass methods to prevent "Sign in to confirm you're not a bot" checks.
+It features a beautiful, glassmorphic UI dashboard with built-in theme support (Dark/Light) and advanced authentication bypass methods to prevent YouTube's "Sign in to confirm you're not a bot" checks.
 
 ---
 
@@ -14,14 +14,15 @@ It features an elegant UI with built-in theme support (Dark/Light/System) and ad
   * **Browser Cookies (Auto)**: Automatically extracts active session cookies from Chrome, Edge, Firefox, Brave, Safari, Opera, or Vivaldi.
   * **Cookie File (Manual)**: Allows loading traditional browser-exported `.txt` cookie files.
 * **Format & Codec Selection**: Fine-tune downloads by choosing your resolution presets and video codecs (VP9, AV1, H.264, or H.265/HEVC).
-* **Modern Desktop GUI**: Sleek dashboard layout with dynamic widgets, live logs, real-time download speed, playlist progress tracking, and theme switching.
+* **Stunning Web-Based Desktop GUI**: Built using clean HTML, modern responsive Vanilla CSS (glassmorphism, smooth animations), and native-like window wrapping via `pywebview`.
 * **CLI Utility**: Includes `download_inline.py` for headless or command-line operation.
+* **Standalone Executable**: Packages into a single self-contained `.exe` file for easy deployment.
 
 ---
 
 ## 🛠️ Prerequisites
 
-To run this application, make sure you have the following installed on your system:
+To run this application from source, make sure you have the following installed on your system:
 
 1. **Python 3.10+**
 2. **Node.js** (Used by `yt-dlp` as a JavaScript runtime to solve signature challenges).
@@ -37,16 +38,29 @@ Clone the repository and install the required Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-*(Dependencies: `customtkinter`, `yt-dlp`, `pillow` (optional for thumbnails))*
+*(Dependencies: `pywebview`, `yt-dlp`)*
 
 ### 2. Running the GUI Application
 Launch the main dashboard interface:
 
 ```bash
-python myytd_app.py
+python ytd_webview_app.py
 ```
 
-### 3. Running the CLI Tool
+### 3. Packaging into a Standalone Executable (.exe)
+You can compile the application into a single executable that runs on other computers without requiring a Python environment or pip packages:
+
+```bash
+# Install PyInstaller
+pip install pyinstaller
+
+# Build the executable
+pyinstaller --clean --onefile --noconsole --add-data "web;web" ytd_webview_app.py
+```
+Once completed, the single self-contained executable will be generated inside the `dist/` folder:
+* **`dist/ytd_webview_app.exe`**
+
+### 4. Running the CLI Tool
 Use the helper script to download directly from the terminal:
 
 ```bash
@@ -64,10 +78,10 @@ python download_inline.py <youtube-url> --auth manual --cookies path/to/cookies.
 
 ## ⚙️ Configuration & Settings
 
-Inside the **Output Settings** and **Network & Engine** tabs of the GUI, you can customize:
+Inside the settings panels of the GUI, you can customize:
 * **Output Folder**: Destination for downloaded files.
 * **Authentication Method**: Configure client emulation, auto browser extraction, or manual cookie paths.
-* **Theme Options**: Dynamically switch the theme between Dark, Light, or System appearance modes.
+* **Theme Options**: Dynamically switch the theme between Dark and Light appearance modes.
 * **Subtitles**: Enable/disable subtitles and specify preferred language codes (e.g., `en,es,fr`).
 * **Proxy settings**: Route download traffic through a custom HTTP/SOCKS proxy server.
 

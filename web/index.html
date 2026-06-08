@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Downloader Pro</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-mode">
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <span class="logo-icon">🚀</span>
+                <h1>YouTube Downloader Pro</h1>
+            </div>
+            <div class="header-actions">
+                <button id="theme-toggle" class="theme-btn" title="Toggle Light/Dark Theme">
+                    <span class="mode-icon">🌙</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Dashboard -->
+        <main class="dashboard">
+            
+            <!-- URL Analyzer Section -->
+            <section class="card url-section">
+                <div class="url-input-group">
+                    <input type="text" id="url-input" placeholder="Paste YouTube video or playlist URL here..." autocomplete="off">
+                    <button id="action-btn" class="btn btn-primary">Analyze URL</button>
+                </div>
+            </section>
+
+            <!-- Video Preview Card (Initially hidden) -->
+            <section id="preview-card" class="card preview-card hidden">
+                <div class="preview-content">
+                    <div class="thumbnail-wrapper">
+                        <img id="video-thumbnail" src="" alt="Video Thumbnail">
+                        <span id="video-duration" class="badge duration-badge">0:00</span>
+                    </div>
+                    <div class="video-info">
+                        <h2 id="video-title">Video Title</h2>
+                        <p id="video-uploader" class="uploader-name">👤 Channel Name</p>
+                        <div class="video-meta">
+                            <span id="video-views" class="meta-item">👁️ 0 views</span>
+                            <span id="playlist-badge" class="badge playlist-badge hidden">📁 Playlist</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tabs Section -->
+            <section class="card settings-section">
+                <div class="tabs-header">
+                    <button class="tab-btn active" data-tab="tab-quality">Quality & Codecs</button>
+                    <button class="tab-btn" data-tab="tab-general">Output & Auth</button>
+                    <button class="tab-btn" data-tab="tab-network">Engine & Network</button>
+                </div>
+                
+                <div class="tabs-content">
+                    <!-- Tab: Quality & Format -->
+                    <div id="tab-quality" class="tab-pane active">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="quality-preset">Quality Preset</label>
+                                <select id="quality-preset">
+                                    <option value="Best Available (No Limit)">Best Available (No Limit)</option>
+                                    <option value="4K (2160p)">4K (2160p)</option>
+                                    <option value="1080p (Best Quality)">1080p (Best Quality)</option>
+                                    <option value="720p">720p</option>
+                                    <option value="480p">480p</option>
+                                    <option value="Audio Only (Best)">Audio Only (Best)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="video-codec">Preferred Codec</label>
+                                <select id="video-codec">
+                                    <option value="Best Available">Best Available</option>
+                                    <option value="VP9 (Recommended)">VP9 (Recommended)</option>
+                                    <option value="AV1 (Efficient)">AV1 (Efficient)</option>
+                                    <option value="H.264 (Compatible)">H.264 (Compatible)</option>
+                                    <option value="H.265/HEVC">H.265/HEVC</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="audio-quality">Audio Bitrate (kbps)</label>
+                                <select id="audio-quality">
+                                    <option value="320">320 kbps (Best)</option>
+                                    <option value="256">256 kbps</option>
+                                    <option value="192">192 kbps</option>
+                                    <option value="128">128 kbps</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="switch-container">
+                                    <input type="checkbox" id="download-subtitles">
+                                    <span class="switch-slider"></span>
+                                    <span class="switch-label">Download Subtitles</span>
+                                </label>
+                            </div>
+                            <div class="form-group full-width" id="subtitle-langs-group">
+                                <label for="subtitle-languages">Subtitle Languages (comma-separated)</label>
+                                <input type="text" id="subtitle-languages" placeholder="e.g. en,es,fr">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: General Settings -->
+                    <div id="tab-general" class="tab-pane">
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="output-dir">Output Folder</label>
+                                <div class="input-action-group">
+                                    <input type="text" id="output-dir" readonly>
+                                    <button id="browse-dir-btn" class="btn btn-secondary">Browse</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="auth-method">Authentication Method</label>
+                                <select id="auth-method">
+                                    <option value="Bypass (Client Emulation)">Bypass (Client Emulation)</option>
+                                    <option value="Browser Cookies (Auto)">Browser Cookies (Auto)</option>
+                                    <option value="Cookie File (Manual)">Cookie File (Manual)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="browser-select-group">
+                                <label for="browser-name">Select Browser</label>
+                                <select id="browser-name">
+                                    <option value="chrome">Chrome</option>
+                                    <option value="firefox">Firefox</option>
+                                    <option value="edge">Edge</option>
+                                    <option value="brave">Brave</option>
+                                    <option value="opera">Opera</option>
+                                    <option value="vivaldi">Vivaldi</option>
+                                    <option value="safari">Safari</option>
+                                </select>
+                            </div>
+                            <div class="form-group full-width" id="cookies-file-group">
+                                <label for="cookies-path">Cookies File Path</label>
+                                <div class="input-action-group">
+                                    <input type="text" id="cookies-path" placeholder="Select cookies.txt path...">
+                                    <button id="browse-cookies-btn" class="btn btn-secondary">Browse</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: Engine & Network -->
+                    <div id="tab-network" class="tab-pane">
+                        <div class="form-grid">
+                            <div class="form-group full-width">
+                                <label for="filename-template">Filename Template</label>
+                                <input type="text" id="filename-template" placeholder="%(title)s.%(ext)s">
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="node-path">Node.js Path (for signature decryption)</label>
+                                <input type="text" id="node-path" placeholder="e.g. C:\Program Files\nodejs">
+                            </div>
+                            <div class="form-group">
+                                <label class="switch-container">
+                                    <input type="checkbox" id="proxy-enabled">
+                                    <span class="switch-slider"></span>
+                                    <span class="switch-label">Enable Proxy</span>
+                                </label>
+                            </div>
+                            <div class="form-group" id="proxy-url-group">
+                                <label for="proxy-url">Proxy URL</label>
+                                <input type="text" id="proxy-url" placeholder="http://127.0.0.1:8080">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-footer">
+                    <button id="save-defaults-btn" class="btn btn-secondary">Save Defaults</button>
+                    <button id="reset-defaults-btn" class="btn btn-danger">Reset Defaults</button>
+                </div>
+            </section>
+
+            <!-- Progress Tracking Section -->
+            <section class="card progress-section">
+                <!-- File progress -->
+                <div class="progress-container">
+                    <div class="progress-info">
+                        <span id="file-status">Current File: Idle</span>
+                        <span id="file-percent">0%</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="file-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <!-- Playlist progress -->
+                <div class="progress-container" id="playlist-progress-container" style="display: none;">
+                    <div class="progress-info">
+                        <span id="playlist-status">Playlist Progress: N/A</span>
+                        <span id="playlist-percent">0%</span>
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div id="playlist-progress-bar" class="progress-bar-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Console Log Output -->
+            <section class="card log-section">
+                <div class="log-header">
+                    <h3>Download Log Output</h3>
+                    <button id="clear-log-btn" class="btn btn-xs">Clear Log</button>
+                </div>
+                <div class="log-console-wrapper">
+                    <div id="log-console" class="log-console"></div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Frontend logic -->
+    <script src="main.js"></script>
+</body>
+</html>
