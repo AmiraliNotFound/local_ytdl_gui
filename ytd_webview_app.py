@@ -1,5 +1,5 @@
 from gevent import monkey
-monkey.patch_all()
+monkey.patch_all(dns=False)
 
 import os
 import sys
@@ -18,17 +18,45 @@ if sys.platform == 'win32':
 
 import traceback
 
-# If running as packaged executable, redirect stdout/stderr to a log file
-if getattr(sys, 'frozen', False):
-    exe_dir = os.path.dirname(sys.executable)
-    log_path = os.path.join(exe_dir, "ytd_app.log")
+# Unbuffered logging system
+log_file_handle = None
+try:
+    log_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.getcwd()
+    log_path = os.path.join(log_dir, "ytd_app.log")
+    log_file_handle = open(log_path, 'w', encoding='utf-8', buffering=1)
+except Exception:
+    pass
+
+def log_debug(msg):
+    formatted = f"{msg}\n"
+    if log_file_handle:
+        try:
+            log_file_handle.write(formatted)
+            log_file_handle.flush()
+        except Exception:
+            pass
     try:
-        log_file = open(log_path, 'w', encoding='utf-8')
-        sys.stdout = log_file
-        sys.stderr = log_file
+        sys.__stdout__.write(formatted)
+        sys.__stdout__.flush()
     except Exception:
-        sys.stdout = open(os.devnull, 'w')
-        sys.stderr = open(os.devnull, 'w')
+        pass
+
+# Redirect stdout/stderr to log_debug writes
+class LogStream:
+    def __init__(self, is_stderr=False):
+        self.is_stderr = is_stderr
+    def write(self, data):
+        if data.strip():
+            log_debug(f"[{'STDERR' if self.is_stderr else 'STDOUT'}] {data.strip()}")
+    def flush(self):
+        if log_file_handle:
+            try:
+                log_file_handle.flush()
+            except Exception:
+                pass
+
+sys.stdout = LogStream(is_stderr=False)
+sys.stderr = LogStream(is_stderr=True)
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -37,13 +65,10 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     try:
         tb_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
         tb_text = "".join(tb_lines)
+        log_debug(f"[CRASH] Uncaught exception:\n{tb_text}")
         
-        # Also print to sys.stderr so it goes to our redirected log file
-        traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
-        if sys.stderr:
-            sys.stderr.flush()
-            
-        with open("crash_log.txt", "w") as f:
+        crash_path = os.path.join(os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.getcwd(), "crash_log.txt")
+        with open(crash_path, "w") as f:
             f.write(tb_text)
             
         # Display native Windows MessageBox
@@ -172,14 +197,20 @@ class WebviewAPI:
 
     # Logger Helper
     def write_log(self, message):
-        eel.append_log(message)
+        log_debug(f"[APP_LOG] {message.strip()}")
+        try:
+            eel.append_log(message)
+        except Exception as e:
+            log_debug(f"[WARN] Failed to write log to Eel: {e}")
 
     # URL Analyzer
     def analyze_url(self, url, config_from_ui):
+        log_debug(f"[API] analyze_url called for URL: {url}")
         self.config = config_from_ui
         threading.Thread(target=self._execute_analyze, args=(url,), daemon=True).start()
 
     def _execute_analyze(self, url):
+        log_debug(f"[API] _execute_analyze thread started for URL: {url}")
         try:
             ydl_opts = {
                 'quiet': True,
@@ -190,10 +221,12 @@ class WebviewAPI:
             
             # Apply cookies / auth
             auth_method = self.config.get("auth_method")
+            log_debug(f"[API] Selected auth method: {auth_method}")
             if auth_method == "Browser Cookies (Auto)":
                 ydl_opts['cookiesfrombrowser'] = (self.config.get("browser_name", "chrome"),)
             elif auth_method == "Cookie File (Manual)":
                 cookies = self.config.get("cookies_path", "")
+                log_debug(f"[API] Manual cookies path: {cookies}")
                 if os.path.exists(cookies):
                     ydl_opts['cookiefile'] = cookies
             else:  # Bypass (Client Emulation)
@@ -206,9 +239,13 @@ class WebviewAPI:
             # Apply proxy
             if self.config.get("proxy_enabled"):
                 ydl_opts['proxy'] = self.config.get("proxy_url")
+                log_debug(f"[API] Configured proxy: {ydl_opts['proxy']}")
             
+            log_debug(f"[API] Initializing YoutubeDL with options: {ydl_opts}")
             with YoutubeDL(ydl_opts) as ydl:
+                log_debug("[API] YoutubeDL initialized. Extracting video info...")
                 info = ydl.extract_info(url, download=False)
+                log_debug(f"[API] Successfully extracted video info. Title: {info.get('title')}")
                 
                 # Handle playlists
                 if 'entries' in info:
@@ -225,21 +262,29 @@ class WebviewAPI:
                     self.video_info['is_playlist'] = False
                 
                 # Prepare metadata for JS preview
+                view_count = self.video_info.get('view_count')
+                try:
+                    views_str = f"{int(view_count):,}" if view_count is not None else "Unknown"
+                except (ValueError, TypeError):
+                    views_str = str(view_count) if view_count is not None else "Unknown"
+
                 preview_data = {
                     "title": self.video_info.get('title', 'Unknown Title'),
                     "thumbnail": self.video_info.get('thumbnail', ''),
                     "uploader": self.video_info.get('uploader', 'Unknown Channel'),
-                    "views": f"{self.video_info.get('view_count', 0):,}" if self.video_info.get('view_count') else "Unknown",
+                    "views": views_str,
                     "duration": self.video_info.get('duration', 0),
                     "is_playlist": self.video_info['is_playlist'],
                     "playlist_count": self.video_info.get('playlist_count', 0)
                 }
                 
                 # Push back to JS
+                log_debug(f"[API] Pushing preview details to JS: {preview_data}")
                 eel.update_preview(preview_data)
                 self.write_log("[INFO] Video details parsed successfully!\n")
                 
         except Exception as e:
+            log_debug(f"[API_ERROR] Exception in _execute_analyze: {traceback.format_exc()}")
             self.write_log(f"[ERROR] Failed to fetch info: {str(e)}\n")
             eel.reset_analyze_btn('Analyze URL')
 
@@ -346,10 +391,13 @@ class WebviewAPI:
 
         # Download execution
         try:
+            log_debug("[API] Initiating download with YoutubeDL...")
             with YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+            log_debug("[API] Download completed successfully.")
             self.write_log("\n[SUCCESS] Download completed successfully!\n")
         except Exception as e:
+            log_debug(f"[API_ERROR] Exception in _execute_download: {traceback.format_exc()}")
             self.write_log(f"\n[CRITICAL ERROR] {str(e)}\n")
         finally:
             self.is_downloading = False
@@ -452,11 +500,15 @@ def save_config(config):
 
 
 if __name__ == "__main__":
+    log_debug("Backend main startup initiated.")
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         web_dir = os.path.join(sys._MEIPASS, 'web')
+        log_debug(f"Packaged executable context. sys._MEIPASS: {sys._MEIPASS}, web_dir: {web_dir}")
     else:
         web_dir = 'web'
+        log_debug(f"Standard python context. web_dir: {web_dir}")
         
+    log_debug(f"Initializing Eel with web_dir: {web_dir}")
     eel.init(web_dir)
     
     # Try starting Chrome, fallback to Edge or default

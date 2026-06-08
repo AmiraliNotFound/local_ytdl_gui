@@ -584,3 +584,50 @@ input:checked + .switch-slider::before {
 .hidden {
     display: none !important;
 }
+
+/* Connection Error Banner */
+.connection-error-banner {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    animation: slideInDown 0.3s ease-out;
+}
+
+.error-banner-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.error-icon {
+    font-size: 24px;
+}
+
+.error-text h3 {
+    margin: 0 0 4px 0;
+    color: #f87171;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.error-text p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+@keyframes slideInDown {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

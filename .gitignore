@@ -26,3 +26,8 @@ venv/
 .venv/
 .vscode/
 .idea/
+
+# Local logs and compiled resource files
+resource.res
+crash_log.txt
+*.log

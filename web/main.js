@@ -1,3 +1,30 @@
+// Redirect console log/error/warn to python backend logger
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+function sendToPython(type, args) {
+    const msg = `[JS ${type}] ${args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ')}\n`;
+    if (typeof eel !== 'undefined') {
+        try {
+            eel.append_log(msg);
+        } catch (e) {}
+    }
+}
+
+console.log = function(...args) {
+    originalLog.apply(console, args);
+    sendToPython('LOG', args);
+};
+console.error = function(...args) {
+    originalError.apply(console, args);
+    sendToPython('ERROR', args);
+};
+console.warn = function(...args) {
+    originalWarn.apply(console, args);
+    sendToPython('WARN', args);
+};
+
 // Global Javascript Error Logger to Python Backend
 window.onerror = function(message, source, lineno, colno, error) {
     const errorMsg = `[JS ERROR] ${message} at ${source}:${lineno}:${colno}\n`;
@@ -9,8 +36,56 @@ window.onerror = function(message, source, lineno, colno, error) {
     return false;
 };
 
+// Connection Error Banner Helper
+function showConnectionError(message) {
+    if (document.querySelector(".connection-error-banner")) return;
+    const container = document.querySelector(".app-container");
+    const errDiv = document.createElement("div");
+    errDiv.className = "connection-error-banner";
+    errDiv.innerHTML = `
+        <div class="error-banner-content">
+            <span class="error-icon">⚠️</span>
+            <div class="error-text">
+                <h3>Backend Connection Failed</h3>
+                <p>${message}</p>
+            </div>
+        </div>
+    `;
+    container.insertBefore(errDiv, container.firstChild);
+}
+
+// Monitor backend websocket status
+function monitorConnection() {
+    setTimeout(() => {
+        if (typeof eel === 'undefined') {
+            showConnectionError("The Eel library could not be loaded. Please make sure the backend is running and that no firewalls or network changes are blocking local websocket ports.");
+            return;
+        }
+        
+        if (!eel._websocket) {
+            showConnectionError("Websocket connection is not initialized. Please restart the application.");
+            return;
+        }
+
+        const ws = eel._websocket;
+        
+        if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+            showConnectionError("Websocket connection is closed. The python backend may have crashed or terminated.");
+        }
+
+        ws.addEventListener('close', () => {
+            showConnectionError("Websocket connection was closed. The python backend process may have exited.");
+        });
+        
+        ws.addEventListener('error', (err) => {
+            showConnectionError("Websocket connection error occurred. Check browser console.");
+        });
+    }, 2000);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     initializeUI();
+    monitorConnection();
 });
 
 // Cache DOM Elements
