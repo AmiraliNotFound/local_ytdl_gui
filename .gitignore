@@ -31,3 +31,7 @@ venv/
 resource.res
 crash_log.txt
 *.log
+
+# Release packages and archives
+*.zip
+release_temp/
