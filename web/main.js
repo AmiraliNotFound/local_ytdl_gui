@@ -247,7 +247,7 @@ function toggleTheme() {
 function handleActionButtonClick() {
     const url = urlInput.value.trim();
     if (!url) {
-        appendLog("[ERROR] Please paste a URL first.\n");
+        append_log("[ERROR] Please paste a URL first.\n");
         return;
     }
 
@@ -256,7 +256,7 @@ function handleActionButtonClick() {
     if (currentActionState === "analyze") {
         actionBtn.disabled = true;
         actionBtn.textContent = "Analyzing...";
-        appendLog(`\n[INFO] Fetching video info for: ${url}\n`);
+        append_log(`\n[INFO] Fetching video info for: ${url}\n`);
 
         if (typeof eel !== 'undefined') {
             eel.analyze_url(url, currentConfig);
