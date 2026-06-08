@@ -1,4 +1,13 @@
-// Frontend Javascript Logic for YouTube Downloader Pro
+// Global Javascript Error Logger to Python Backend
+window.onerror = function(message, source, lineno, colno, error) {
+    const errorMsg = `[JS ERROR] ${message} at ${source}:${lineno}:${colno}\n`;
+    if (typeof eel !== 'undefined') {
+        try {
+            eel.append_log(errorMsg);
+        } catch (e) {}
+    }
+    return false;
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     initializeUI();
@@ -81,16 +90,16 @@ function initializeUI() {
 
     // 4. Directory & File Selection Dialogs (Python callbacks)
     browseDirBtn.addEventListener("click", () => {
-        if (window.pywebview) {
-            window.pywebview.api.choose_directory().then(path => {
+        if (typeof eel !== 'undefined') {
+            eel.choose_directory()(path => {
                 if (path) outputDir.value = path;
             });
         }
     });
 
     browseCookiesBtn.addEventListener("click", () => {
-        if (window.pywebview) {
-            window.pywebview.api.choose_cookies_file().then(path => {
+        if (typeof eel !== 'undefined') {
+            eel.choose_cookies_file()(path => {
                 if (path) cookiesPath.value = path;
             });
         }
@@ -99,7 +108,7 @@ function initializeUI() {
     // 5. Save and Reset Configuration
     saveDefaultsBtn.addEventListener("click", saveConfiguration);
     resetDefaultsBtn.addEventListener("click", () => {
-        if (window.pywebview) window.pywebview.api.reset_config();
+        if (typeof eel !== 'undefined') eel.reset_config();
     });
 
     // 6. Action Button (Analyze / Download)
@@ -111,16 +120,8 @@ function initializeUI() {
     });
 
     // Request initial config from Python
-    waitForWebviewAPI(() => {
-        window.pywebview.api.get_initial_config();
-    });
-}
-
-function waitForWebviewAPI(callback) {
-    if (window.pywebview && window.pywebview.api) {
-        callback();
-    } else {
-        setTimeout(() => waitForWebviewAPI(callback), 100);
+    if (typeof eel !== 'undefined') {
+        eel.get_initial_config();
     }
 }
 
@@ -162,8 +163,8 @@ function toggleTheme() {
     modeIcon.textContent = isLight ? "☀️" : "🌙";
     
     // Save theme to python config
-    if (window.pywebview) {
-        window.pywebview.api.save_theme(isLight ? "Light" : "Dark");
+    if (typeof eel !== 'undefined') {
+        eel.save_theme(isLight ? "Light" : "Dark");
     }
 }
 
@@ -182,8 +183,8 @@ function handleActionButtonClick() {
         actionBtn.textContent = "Analyzing...";
         appendLog(`\n[INFO] Fetching video info for: ${url}\n`);
 
-        if (window.pywebview) {
-            window.pywebview.api.analyze_url(url, currentConfig);
+        if (typeof eel !== 'undefined') {
+            eel.analyze_url(url, currentConfig);
         }
     } else if (currentActionState === "download") {
         actionBtn.disabled = true;
@@ -193,8 +194,8 @@ function handleActionButtonClick() {
         updateProgress(0, "Current File: Preparing...");
         playlistProgressContainer.style.display = "none";
         
-        if (window.pywebview) {
-            window.pywebview.api.start_download(url, currentConfig);
+        if (typeof eel !== 'undefined') {
+            eel.start_download(url, currentConfig);
         }
     }
 }
@@ -221,13 +222,14 @@ function buildConfigFromUI() {
 
 function saveConfiguration() {
     const config = buildConfigFromUI();
-    if (window.pywebview) {
-        window.pywebview.api.save_config(config);
+    if (typeof eel !== 'undefined') {
+        eel.save_config(config);
     }
 }
 
 // API Callbacks invoked from Python
-window.set_initial_config = function(config) {
+eel.expose(set_initial_config);
+function set_initial_config(config) {
     appConfig = config;
 
     outputDir.value = config.output_dir || "";
@@ -260,9 +262,10 @@ window.set_initial_config = function(config) {
     updateAuthFieldVisibility();
     updateSubtitleFieldVisibility();
     updateProxyFieldVisibility();
-};
+}
 
-window.update_preview = function(info) {
+eel.expose(update_preview);
+function update_preview(info) {
     previewCard.classList.remove("hidden");
     
     videoThumbnail.src = info.thumbnail || "";
@@ -291,31 +294,35 @@ window.update_preview = function(info) {
     actionBtn.disabled = false;
     actionBtn.textContent = "Start Download";
     actionBtn.className = "btn btn-primary btn-download-state";
-};
+}
 
-window.reset_analyze_btn = function(stateText = "Analyze URL") {
+eel.expose(reset_analyze_btn);
+function reset_analyze_btn(stateText = "Analyze URL") {
     currentActionState = "analyze";
     actionBtn.disabled = false;
     actionBtn.textContent = stateText;
     actionBtn.className = "btn btn-primary";
     previewCard.classList.add("hidden");
-};
+}
 
-window.update_progress = function(percent, text) {
+eel.expose(update_progress);
+function update_progress(percent, text) {
     filePercent.textContent = `${Math.round(percent * 100)}%`;
     fileStatus.textContent = text;
     fileProgressBar.style.width = `${percent * 100}%`;
-};
+}
 
-window.update_playlist_progress = function(current, total) {
+eel.expose(update_playlist_progress);
+function update_playlist_progress(current, total) {
     playlistProgressContainer.style.display = "block";
     playlistStatus.textContent = `Playlist Progress: Video ${current} of ${total}`;
     const percent = current / total;
     playlistPercent.textContent = `${Math.round(percent * 100)}%`;
     playlistProgressBar.style.width = `${percent * 100}%`;
-};
+}
 
-window.append_log = function(message) {
+eel.expose(append_log);
+function append_log(message) {
     logConsole.textContent += message;
     logConsole.scrollTop = logConsole.scrollHeight;
-};
+}

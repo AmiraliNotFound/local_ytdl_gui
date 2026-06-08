@@ -1,9 +1,64 @@
+from gevent import monkey
+monkey.patch_all()
+
 import os
 import sys
+
+# Hide console window programmatically if running on Windows
+if sys.platform == 'win32':
+    import ctypes
+    try:
+        kernel32 = ctypes.WinDLL('kernel32')
+        user32 = ctypes.WinDLL('user32')
+        hwnd = kernel32.GetConsoleWindow()
+        if hwnd:
+            user32.ShowWindow(hwnd, 0)  # 0 = SW_HIDE
+    except Exception:
+        pass
+
+import traceback
+
+# If running as packaged executable, redirect stdout/stderr to a log file
+if getattr(sys, 'frozen', False):
+    exe_dir = os.path.dirname(sys.executable)
+    log_path = os.path.join(exe_dir, "ytd_app.log")
+    try:
+        log_file = open(log_path, 'w', encoding='utf-8')
+        sys.stdout = log_file
+        sys.stderr = log_file
+    except Exception:
+        sys.stdout = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, 'w')
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    try:
+        tb_lines = traceback.format_exception(exc_type, exc_value, exc_traceback)
+        tb_text = "".join(tb_lines)
+        
+        # Also print to sys.stderr so it goes to our redirected log file
+        traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+        if sys.stderr:
+            sys.stderr.flush()
+            
+        with open("crash_log.txt", "w") as f:
+            f.write(tb_text)
+            
+        # Display native Windows MessageBox
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, tb_text, "Python Backend Crash", 0x10) # 0x10 = MB_ICONERROR
+    except Exception:
+        pass
+
+sys.excepthook = handle_exception
 import json
 import threading
 import urllib.request
-import webview
+import eel
+import tkinter as tk
+from tkinter import filedialog
 from yt_dlp import YoutubeDL
 
 CONFIG_FILE = "config.json"
@@ -42,14 +97,10 @@ class WebViewLogger:
 # --- WEBVIEW JAVASCRIPT API ---
 class WebviewAPI:
     def __init__(self):
-        self.window = None
         self.config = self.load_config()
         self.is_downloading = False
         self.video_info = None
         self.setup_environment()
-
-    def set_window(self, window):
-        self.window = window
 
     def setup_environment(self):
         current_dir = os.getcwd()
@@ -75,7 +126,7 @@ class WebviewAPI:
         return DEFAULT_CONFIG.copy()
 
     def get_initial_config(self):
-        self.window.evaluate_js(f"set_initial_config({json.dumps(self.config)})")
+        eel.set_initial_config(self.config)
 
     def save_config(self, config):
         self.config = config
@@ -100,24 +151,28 @@ class WebviewAPI:
 
     # File / Folder Dialogs
     def choose_directory(self):
-        result = self.window.create_file_dialog(webview.FOLDER_DIALOG)
-        if result and len(result) > 0:
-            return result[0]
-        return ""
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes('-topmost', 1)
+        path = filedialog.askdirectory(parent=root, title="Select Output Directory")
+        root.destroy()
+        return path
 
     def choose_cookies_file(self):
-        result = self.window.create_file_dialog(
-            webview.OPEN_DIALOG, 
-            file_types=('Text Files (*.txt)', 'All Files (*.*)')
+        root = tk.Tk()
+        root.withdraw()
+        root.wm_attributes('-topmost', 1)
+        path = filedialog.askopenfilename(
+            parent=root,
+            title="Select Cookies File",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
-        if result and len(result) > 0:
-            return result[0]
-        return ""
+        root.destroy()
+        return path
 
     # Logger Helper
     def write_log(self, message):
-        escaped_message = json.dumps(message)
-        self.window.evaluate_js(f"append_log({escaped_message})")
+        eel.append_log(message)
 
     # URL Analyzer
     def analyze_url(self, url, config_from_ui):
@@ -181,12 +236,12 @@ class WebviewAPI:
                 }
                 
                 # Push back to JS
-                self.window.evaluate_js(f"update_preview({json.dumps(preview_data)})")
+                eel.update_preview(preview_data)
                 self.write_log("[INFO] Video details parsed successfully!\n")
                 
         except Exception as e:
             self.write_log(f"[ERROR] Failed to fetch info: {str(e)}\n")
-            self.window.evaluate_js("reset_analyze_btn('Analyze URL')")
+            eel.reset_analyze_btn('Analyze URL')
 
     # Video Downloader
     def start_download(self, url, config_from_ui):
@@ -207,7 +262,7 @@ class WebviewAPI:
             except OSError as e:
                 self.write_log(f"[ERROR] Cannot create output directory: {e}\n")
                 self.is_downloading = False
-                self.window.evaluate_js("reset_analyze_btn('Start Download')")
+                eel.reset_analyze_btn('Start Download')
                 return
 
         current_dir = os.getcwd()
@@ -298,8 +353,8 @@ class WebviewAPI:
             self.write_log(f"\n[CRITICAL ERROR] {str(e)}\n")
         finally:
             self.is_downloading = False
-            self.window.evaluate_js("reset_analyze_btn('Analyze URL')")
-            self.window.evaluate_js("update_progress(0, 'Current File: Idle')")
+            eel.reset_analyze_btn('Analyze URL')
+            eel.update_progress(0, 'Current File: Idle')
 
     def build_format_string(self, quality_preset, codec_pref):
         if "Best Available" in quality_preset:
@@ -348,38 +403,74 @@ class WebviewAPI:
                 eta = d.get('_eta_str', 'N/A')
                 
                 status_text = f"Downloading... Speed: {speed}  |  ETA: {eta}"
-                self.window.evaluate_js(f"update_progress({percent}, '{status_text}')")
+                eel.update_progress(percent, status_text)
                 
         elif d['status'] == 'finished':
-            self.window.evaluate_js("update_progress(1.0, 'File Downloaded, Processing/Merging...')")
+            eel.update_progress(1.0, 'File Downloaded, Processing/Merging...')
             
         info = d.get('info_dict', {})
         playlist_index = info.get('playlist_index')
         n_entries = info.get('n_entries') or info.get('playlist_count')
         if playlist_index is not None and n_entries is not None and n_entries > 0:
-            self.window.evaluate_js(f"update_playlist_progress({playlist_index}, {n_entries})")
+            eel.update_playlist_progress(playlist_index, n_entries)
 
 
-def get_resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+# Initialize global API instance
+api = WebviewAPI()
+
+@eel.expose
+def choose_directory():
+    return api.choose_directory()
+
+@eel.expose
+def choose_cookies_file():
+    return api.choose_cookies_file()
+
+@eel.expose
+def reset_config():
+    return api.reset_config()
+
+@eel.expose
+def get_initial_config():
+    return api.get_initial_config()
+
+@eel.expose
+def save_theme(theme):
+    return api.save_theme(theme)
+
+@eel.expose
+def analyze_url(url, config_from_ui):
+    return api.analyze_url(url, config_from_ui)
+
+@eel.expose
+def start_download(url, config_from_ui):
+    return api.start_download(url, config_from_ui)
+
+@eel.expose
+def save_config(config):
+    return api.save_config(config)
 
 
 if __name__ == "__main__":
-    api = WebviewAPI()
-    url = get_resource_path(os.path.join("web", "index.html"))
-    window = webview.create_window(
-        title="YouTube Downloader Pro",
-        url=url,
-        js_api=api,
-        width=950,
-        height=920,
-        resizable=True,
-        min_size=(800, 600)
-    )
-    api.set_window(window)
-    webview.start(debug=False)
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        web_dir = os.path.join(sys._MEIPASS, 'web')
+    else:
+        web_dir = 'web'
+        
+    eel.init(web_dir)
+    
+    # Try starting Chrome, fallback to Edge or default
+    try:
+        eel.start('index.html', host='127.0.0.1', mode='chrome', size=(950, 920))
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception:
+        try:
+            eel.start('index.html', host='127.0.0.1', mode='edge', size=(950, 920))
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except Exception:
+            try:
+                eel.start('index.html', host='127.0.0.1', mode='default', size=(950, 920))
+            except (SystemExit, KeyboardInterrupt):
+                raise
