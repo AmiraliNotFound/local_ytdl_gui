@@ -4,6 +4,15 @@ monkey.patch_all(dns=False)
 import os
 import sys
 
+# Support dynamic updates of yt-dlp by prioritizing 'updates' directory in path
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+updates_dir = os.path.join(app_dir, "updates")
+if os.path.exists(updates_dir) and updates_dir not in sys.path:
+    sys.path.insert(0, updates_dir)
+
 # Hide console window programmatically if running on Windows
 if sys.platform == 'win32':
     import ctypes
@@ -79,30 +88,12 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 import json
-import threading
 import urllib.request
 import eel
 import tkinter as tk
 from tkinter import filedialog
 from yt_dlp import YoutubeDL
-
-CONFIG_FILE = "config.json"
-DEFAULT_CONFIG = {
-    "output_dir": os.path.join(os.path.expanduser("~"), "Downloads"),
-    "quality_preset": "1080p (Best Quality)",
-    "video_codec": "Best Available",
-    "audio_quality": "192",
-    "download_subtitles": False,
-    "subtitle_languages": "en",
-    "auth_method": "Bypass (Client Emulation)",
-    "browser_name": "chrome",
-    "cookies_path": "youtube_cookies.txt",
-    "proxy_enabled": False,
-    "proxy_url": "http://127.0.0.1:8080",
-    "node_path": r"C:\Program Files\nodejs",
-    "filename_template": "%(title)s.%(ext)s",
-    "theme": "Dark"
-}
+import ytd_core
 
 # --- CUSTOM LOGGER FOR WEBVIEW ---
 class WebViewLogger:
@@ -119,6 +110,7 @@ class WebViewLogger:
         self.log_callback(f"[ERROR] {msg}\n")
 
 
+
 # --- WEBVIEW JAVASCRIPT API ---
 class WebviewAPI:
     def __init__(self):
@@ -128,48 +120,29 @@ class WebviewAPI:
         self.setup_environment()
 
     def setup_environment(self):
-        current_dir = os.getcwd()
-        paths_to_add = []
-        if current_dir not in os.environ.get("PATH", "").split(os.pathsep):
-            paths_to_add.append(current_dir)
-        
-        node_path = self.config.get("node_path", "")
-        if node_path and os.path.exists(node_path) and node_path not in os.environ.get("PATH", "").split(os.pathsep):
-            paths_to_add.append(node_path)
-            
-        if paths_to_add:
-            os.environ["PATH"] = os.pathsep.join(paths_to_add) + os.pathsep + os.environ.get("PATH", "")
+        ytd_core.setup_environment(self.config)
 
     # Config Management
     def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    return {**DEFAULT_CONFIG, **json.load(f)}
-            except (json.JSONDecodeError, OSError, ValueError):
-                return DEFAULT_CONFIG.copy()
-        return DEFAULT_CONFIG.copy()
+        return ytd_core.load_config()
 
     def get_initial_config(self):
         eel.set_initial_config(self.config)
 
     def save_config(self, config):
         self.config = config
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=4)
+        ytd_core.save_config(self.config)
         self.setup_environment()
         self.write_log("[INFO] Configuration saved successfully!\n")
         self.get_initial_config()
 
     def save_theme(self, theme):
         self.config["theme"] = theme
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=4)
+        ytd_core.save_config(self.config)
 
     def reset_config(self):
-        self.config = DEFAULT_CONFIG.copy()
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=4)
+        self.config = ytd_core.DEFAULT_CONFIG.copy()
+        ytd_core.save_config(self.config)
         self.setup_environment()
         self.write_log("[INFO] Configuration reset to defaults.\n")
         self.get_initial_config()
@@ -207,86 +180,36 @@ class WebviewAPI:
     def analyze_url(self, url, config_from_ui):
         log_debug(f"[API] analyze_url called for URL: {url}")
         self.config = config_from_ui
-        threading.Thread(target=self._execute_analyze, args=(url,), daemon=True).start()
+        import gevent
+        gevent.spawn(self._execute_analyze, url)
 
     def _execute_analyze(self, url):
         log_debug(f"[API] _execute_analyze thread started for URL: {url}")
         try:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'js_runtimes': {'node': {}},
-            }
-            
-            # Apply cookies / auth
-            auth_method = self.config.get("auth_method")
-            log_debug(f"[API] Selected auth method: {auth_method}")
-            if auth_method == "Browser Cookies (Auto)":
-                ydl_opts['cookiesfrombrowser'] = (self.config.get("browser_name", "chrome"),)
-            elif auth_method == "Cookie File (Manual)":
-                cookies = self.config.get("cookies_path", "")
-                log_debug(f"[API] Manual cookies path: {cookies}")
-                if os.path.exists(cookies):
-                    ydl_opts['cookiefile'] = cookies
-            else:  # Bypass (Client Emulation)
-                ydl_opts['extractor_args'] = {
-                    'youtube': {
-                        'player_client': ['android_vr'],
-                    }
-                }
-            
-            # Apply proxy
-            if self.config.get("proxy_enabled"):
-                ydl_opts['proxy'] = self.config.get("proxy_url")
-                log_debug(f"[API] Configured proxy: {ydl_opts['proxy']}")
-            
-            log_debug(f"[API] Initializing YoutubeDL with options: {ydl_opts}")
-            with YoutubeDL(ydl_opts) as ydl:
-                log_debug("[API] YoutubeDL initialized. Extracting video info...")
-                info = ydl.extract_info(url, download=False)
-                log_debug(f"[API] Successfully extracted video info. Title: {info.get('title')}")
-                
-                # Handle playlists
-                if 'entries' in info:
-                    first_video = next((e for e in info['entries'] if e), None)
-                    if first_video:
-                        self.video_info = first_video.copy()
-                        self.video_info['is_playlist'] = True
-                        self.video_info['playlist_title'] = info.get('title', 'Unknown Playlist')
-                        self.video_info['playlist_count'] = len([e for e in info['entries'] if e])
-                    else:
-                        raise Exception("Playlist is empty")
-                else:
-                    self.video_info = info.copy()
-                    self.video_info['is_playlist'] = False
-                
-                # Prepare metadata for JS preview
-                view_count = self.video_info.get('view_count')
-                try:
-                    views_str = f"{int(view_count):,}" if view_count is not None else "Unknown"
-                except (ValueError, TypeError):
-                    views_str = str(view_count) if view_count is not None else "Unknown"
-
-                preview_data = {
-                    "title": self.video_info.get('title', 'Unknown Title'),
-                    "thumbnail": self.video_info.get('thumbnail', ''),
-                    "uploader": self.video_info.get('uploader', 'Unknown Channel'),
-                    "views": views_str,
-                    "duration": self.video_info.get('duration', 0),
-                    "is_playlist": self.video_info['is_playlist'],
-                    "playlist_count": self.video_info.get('playlist_count', 0)
-                }
-                
-                # Push back to JS
-                log_debug(f"[API] Pushing preview details to JS: {preview_data}")
-                eel.update_preview(preview_data)
-                self.write_log("[INFO] Video details parsed successfully!\n")
-                
+            info = ytd_core.extract_detailed_info(url, self.config)
+            log_debug(f"[API] Pushing detailed preview details to JS: {info}")
+            eel.update_preview(info)
+            self.write_log("[INFO] Video details parsed successfully!\n")
         except Exception as e:
             log_debug(f"[API_ERROR] Exception in _execute_analyze: {traceback.format_exc()}")
             self.write_log(f"[ERROR] Failed to fetch info: {str(e)}\n")
             eel.reset_analyze_btn('Analyze URL')
+
+    def update_engine(self):
+        log_debug("[API] update_engine called")
+        import gevent
+        gevent.spawn(self._execute_update_engine)
+
+    def _execute_update_engine(self):
+        self.write_log("\n--- Checking for Engine Updates ---\n")
+        try:
+            latest_version = ytd_core.update_yt_dlp_engine()
+            self.write_log(f"[SUCCESS] yt-dlp updated to version: {latest_version}!\n")
+            eel.engine_update_status(True, latest_version)
+        except Exception as e:
+            log_debug(f"[API_ERROR] Exception in _execute_update_engine: {traceback.format_exc()}")
+            self.write_log(f"[ERROR] Engine update failed: {str(e)}\n")
+            eel.engine_update_status(False, str(e))
 
     # Video Downloader
     def start_download(self, url, config_from_ui):
@@ -294,7 +217,8 @@ class WebviewAPI:
             return
         self.config = config_from_ui
         self.is_downloading = True
-        threading.Thread(target=self._execute_download, args=(url,), daemon=True).start()
+        import gevent
+        gevent.spawn(self._execute_download, url)
 
     def _execute_download(self, url):
         self.write_log(f"\n--- Starting Job: {url} ---\n")
@@ -310,84 +234,28 @@ class WebviewAPI:
                 eel.reset_analyze_btn('Start Download')
                 return
 
-        current_dir = os.getcwd()
-        quality_preset = self.config["quality_preset"]
-        codec_pref = self.config["video_codec"]
-        audio_quality = self.config["audio_quality"]
-        out_tmpl = os.path.join(out_dir, self.config["filename_template"])
+        ytd_core.setup_environment(self.config)
         
-        ydl_opts = {
-            'outtmpl': out_tmpl,
-            'yes_playlist': True,
-            'ignoreerrors': True,
-            'no_warnings': False,
-            'quiet': True,
-            'js_runtimes': {'node': {}},
-            'logger': WebViewLogger(self.write_log),
-            'progress_hooks': [self.hook_routing],
-            'retries': 20,
-            'fragment_retries': 20,
-            'retry_sleep_functions': {'http': lambda n: 10 * (n + 1)},
-            'sleep_interval': 3,
-            'max_sleep_interval': 10,
-        }
+        ydl_opts = ytd_core.get_ytdl_opts(
+            self.config,
+            is_download=True,
+            progress_hooks=[self.hook_routing],
+            logger=WebViewLogger(self.write_log)
+        )
 
-        # Set ffmpeg location if found
-        ffmpeg_path = os.path.join(current_dir, "ffmpeg.exe")
-        if os.path.exists(ffmpeg_path):
-            ydl_opts['ffmpeg_location'] = current_dir
-
-        # Apply Auth / Cookies
-        auth_method = self.config["auth_method"]
-        if auth_method == "Browser Cookies (Auto)":
-            browser = self.config["browser_name"]
-            ydl_opts['cookiesfrombrowser'] = (browser,)
-            self.write_log(f"[INFO] Extracting cookies from browser: {browser}\n")
-        elif auth_method == "Cookie File (Manual)":
-            cookies = self.config["cookies_path"]
-            if os.path.exists(cookies):
-                ydl_opts['cookiefile'] = cookies
-                self.write_log(f"[INFO] Using cookies file: {cookies}\n")
-            else:
-                self.write_log("[WARNING] Cookie file not found. May fail Bot-Check.\n")
-        else:  # Bypass (Client Emulation)
-            if 'http_headers' in ydl_opts:
-                ydl_opts['http_headers'].pop('User-Agent', None)
-            ydl_opts['extractor_args'] = {
-                'youtube': {
-                    'player_client': ['android_vr'],
-                }
-            }
+        if self.config["auth_method"] != "Bypass (Client Emulation)":
+            ydl_opts['http_headers'] = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'}
+            self.write_log("[INFO] Using browser agent for browser extraction / manual cookies.\n")
+        else:
             self.write_log("[INFO] Running with no cookies. Emulating Android VR client to bypass bot detection.\n")
 
-        # Apply Proxy
         if self.config.get("proxy_enabled"):
-            ydl_opts['proxy'] = self.config["proxy_url"]
-            self.write_log(f"Routing through Proxy: {ydl_opts['proxy']}\n")
+            self.write_log(f"Routing through Proxy: {ydl_opts.get('proxy')}\n")
         
-        # Build Format Option
-        if "Audio Only" in quality_preset:
-            ydl_opts['format'] = 'bestaudio/best'
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': audio_quality,
-            }]
-            self.write_log(f"[INFO] Audio-only mode: {audio_quality} kbps MP3\n")
+        if "Audio Only" in self.config["quality_preset"]:
+            self.write_log(f"[INFO] Audio-only mode: {self.config['audio_quality']} kbps MP3\n")
         else:
-            format_str = self.build_format_string(quality_preset, codec_pref)
-            ydl_opts['format'] = format_str
-            ydl_opts['merge_output_format'] = 'mp4'
-            self.write_log(f"[INFO] Video mode: {quality_preset} with {codec_pref}\n")
-        
-        # Subtitle options
-        if self.config.get("download_subtitles"):
-            ydl_opts['writesubtitles'] = True
-            ydl_opts['writeautomaticsub'] = True
-            sub_langs = self.config.get("subtitle_languages", "").strip()
-            if sub_langs:
-                ydl_opts['subtitleslangs'] = [lang.strip() for lang in sub_langs.split(',')]
-            self.write_log(f"[INFO] Subtitles enabled: {sub_langs or 'all available'}\n")
+            self.write_log(f"[INFO] Video mode: {self.config['quality_preset']} with {self.config['video_codec']}\n")
 
         # Download execution
         try:
@@ -403,41 +271,6 @@ class WebviewAPI:
             self.is_downloading = False
             eel.reset_analyze_btn('Analyze URL')
             eel.update_progress(0, 'Current File: Idle')
-
-    def build_format_string(self, quality_preset, codec_pref):
-        if "Best Available" in quality_preset:
-            height_limit = ""
-        elif "4K" in quality_preset:
-            height_limit = "[height<=2160]"
-        elif "1080p" in quality_preset:
-            height_limit = "[height<=1080]"
-        elif "720p" in quality_preset:
-            height_limit = "[height<=720]"
-        elif "480p" in quality_preset:
-            height_limit = "[height<=480]"
-        else:
-            height_limit = "[height<=1080]"
-        
-        codec_filter = ""
-        if "VP9" in codec_pref:
-            codec_filter = "[vcodec^=vp9]"
-        elif "AV1" in codec_pref:
-            codec_filter = "[vcodec^=av01]"
-        elif "H.264" in codec_pref:
-            codec_filter = "[vcodec^=avc1]"
-        elif "H.265" in codec_pref or "HEVC" in codec_pref:
-            codec_filter = "[vcodec^=hev1]"
-        
-        if codec_filter and height_limit:
-            format_str = f"bestvideo{height_limit}{codec_filter}+bestaudio/bestvideo{height_limit}+bestaudio/best"
-        elif codec_filter:
-            format_str = f"bestvideo{codec_filter}+bestaudio/bestvideo+bestaudio/best"
-        elif height_limit:
-            format_str = f"bestvideo{height_limit}+bestaudio/best"
-        else:
-            format_str = "bestvideo+bestaudio/best"
-        
-        return format_str
 
     # --- PROGRESS HOOKS ---
     def hook_routing(self, d):
@@ -501,6 +334,19 @@ def save_config(config):
 @eel.expose
 def js_log(message):
     log_debug(message)
+
+@eel.expose
+def update_engine():
+    return api.update_engine()
+
+@eel.expose
+def open_link(url):
+    import webbrowser
+    log_debug(f"[API] Opening external link in system browser: {url}")
+    try:
+        webbrowser.open(url)
+    except Exception as e:
+        log_debug(f"[API_ERROR] Failed to open external link: {e}")
 
 
 if __name__ == "__main__":

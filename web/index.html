@@ -15,9 +15,14 @@
         <header class="app-header">
             <div class="logo-area">
                 <span class="logo-icon">🚀</span>
-                <h1>YouTube Downloader Pro</h1>
+                <h1>YouTube Downloader Pro <span style="font-size: 11px; opacity: 0.6; font-weight: normal; margin-left: 5px;">v1.1.0</span></h1>
             </div>
-            <div class="header-actions">
+            <div class="header-actions" style="display: flex; align-items: center; gap: 8px;">
+                <a href="https://github.com/AmiraliNotFound/local_ytdl_gui" target="_blank" class="github-btn" title="View Source on GitHub">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                    </svg>
+                </a>
                 <button id="theme-toggle" class="theme-btn" title="Toggle Light/Dark Theme">
                     <span class="mode-icon">🌙</span>
                 </button>
@@ -53,6 +58,32 @@
                 </div>
             </section>
 
+            <!-- Playlist Selection Card (Initially hidden) -->
+            <section id="playlist-card" class="card playlist-card hidden">
+                <div class="playlist-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3>Select Playlist Videos to Download</h3>
+                    <div class="playlist-actions" style="display: flex; gap: 8px;">
+                        <button id="playlist-select-all" class="btn btn-xs">Select All</button>
+                        <button id="playlist-deselect-all" class="btn btn-xs">Deselect All</button>
+                    </div>
+                </div>
+                <div id="playlist-list" class="playlist-list">
+                    <!-- Checkbox list of videos will be rendered dynamically -->
+                </div>
+            </section>
+
+            <!-- Download Queue Card (Initially hidden) -->
+            <section id="queue-card" class="card queue-card hidden">
+                <div class="queue-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3>Active Download Queue (<span id="queue-count">0</span>)</h3>
+                    <button id="clear-queue-btn" class="btn btn-xs">Clear Queue</button>
+                </div>
+                <div id="queue-list" class="queue-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <!-- Queue items will be rendered dynamically -->
+                </div>
+            </section>
+
+
             <!-- Settings Tabs Section -->
             <section class="card settings-section">
                 <div class="tabs-header">
@@ -74,6 +105,7 @@
                                     <option value="720p">720p</option>
                                     <option value="480p">480p</option>
                                     <option value="Audio Only (Best)">Audio Only (Best)</option>
+                                    <option value="Custom Streams (Advanced)">Custom Streams (Advanced)</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -102,12 +134,44 @@
                                     <span class="switch-label">Download Subtitles</span>
                                 </label>
                             </div>
+                            <div class="form-group">
+                                <label class="switch-container">
+                                    <input type="checkbox" id="embed-subtitles">
+                                    <span class="switch-slider"></span>
+                                    <span class="switch-label">Embed Subtitles in Video</span>
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label class="switch-container">
+                                    <input type="checkbox" id="embed-metadata">
+                                    <span class="switch-slider"></span>
+                                    <span class="switch-label">Embed Metadata & Thumbnail</span>
+                                </label>
+                            </div>
                             <div class="form-group full-width" id="subtitle-langs-group">
                                 <label for="subtitle-languages">Subtitle Languages (comma-separated)</label>
                                 <input type="text" id="subtitle-languages" placeholder="e.g. en,es,fr">
                             </div>
+                            <div class="form-group full-width hidden" id="custom-streams-group">
+                                <label style="margin-bottom: 5px;">Advanced Stream Selection</label>
+                                <div class="form-grid" style="gap: 12px; grid-template-columns: repeat(2, 1fr);">
+                                    <div class="form-group">
+                                        <label for="custom-video-format" style="font-size: 11px;">Video Stream</label>
+                                        <select id="custom-video-format">
+                                            <option value="">Best Video Stream</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="custom-audio-format" style="font-size: 11px;">Audio Stream</label>
+                                        <select id="custom-audio-format">
+                                            <option value="">Best Audio Stream</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
+
 
                     <!-- Tab: General Settings -->
                     <div id="tab-general" class="tab-pane">
@@ -170,6 +234,13 @@
                             <div class="form-group" id="proxy-url-group">
                                 <label for="proxy-url">Proxy URL</label>
                                 <input type="text" id="proxy-url" placeholder="http://127.0.0.1:8080">
+                            </div>
+                            <div class="form-group full-width" style="border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 10px;">
+                                <label>Engine Maintenance</label>
+                                <div class="input-action-group" style="margin-top: 8px;">
+                                    <button id="update-engine-btn" class="btn btn-secondary" style="flex-grow: 1;">Update yt-dlp Core</button>
+                                    <span id="engine-status" class="badge" style="display: inline-flex; align-items: center; justify-content: center; min-width: 120px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: var(--text-secondary);">Core Up-To-Date</span>
+                                </div>
                             </div>
                         </div>
                     </div>

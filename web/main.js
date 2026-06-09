@@ -58,7 +58,7 @@ function showConnectionError(message) {
 function monitorConnection() {
     setTimeout(() => {
         if (typeof eel === 'undefined') {
-            showConnectionError("The Eel library could not be loaded. Please make sure the backend is running and that no firewalls or network changes are blocking local websocket ports.");
+            showConnectionError("The Eel library could not be loaded. Please make sure the backend is running.");
             return;
         }
         
@@ -70,7 +70,7 @@ function monitorConnection() {
         const ws = eel._websocket;
         
         if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-            showConnectionError("Websocket connection is closed. The python backend may have crashed or terminated.");
+            showConnectionError("Websocket connection is closed. The python backend may have crashed.");
         }
 
         ws.addEventListener('close', () => {
@@ -101,12 +101,24 @@ const videoUploader = document.getElementById("video-uploader");
 const videoViews = document.getElementById("video-views");
 const playlistBadge = document.getElementById("playlist-badge");
 
+// Playlist Card Elements
+const playlistCard = document.getElementById("playlist-card");
+const playlistList = document.getElementById("playlist-list");
+const playlistSelectAll = document.getElementById("playlist-select-all");
+const playlistDeselectAll = document.getElementById("playlist-deselect-all");
+
+// Settings Elements
 const qualityPreset = document.getElementById("quality-preset");
 const videoCodec = document.getElementById("video-codec");
 const audioQuality = document.getElementById("audio-quality");
 const downloadSubtitles = document.getElementById("download-subtitles");
+const embedSubtitles = document.getElementById("embed-subtitles");
+const embedMetadata = document.getElementById("embed-metadata");
 const subtitleLanguages = document.getElementById("subtitle-languages");
 const subtitleLangsGroup = document.getElementById("subtitle-langs-group");
+const customStreamsGroup = document.getElementById("custom-streams-group");
+const customVideoFormat = document.getElementById("custom-video-format");
+const customAudioFormat = document.getElementById("custom-audio-format");
 
 const outputDir = document.getElementById("output-dir");
 const browseDirBtn = document.getElementById("browse-dir-btn");
@@ -123,6 +135,16 @@ const proxyEnabled = document.getElementById("proxy-enabled");
 const proxyUrl = document.getElementById("proxy-url");
 const proxyUrlGroup = document.getElementById("proxy-url-group");
 
+// Engine Maintenance
+const updateEngineBtn = document.getElementById("update-engine-btn");
+const engineStatus = document.getElementById("engine-status");
+
+// Queue Elements
+const queueCard = document.getElementById("queue-card");
+const queueList = document.getElementById("queue-list");
+const queueCount = document.getElementById("queue-count");
+const clearQueueBtn = document.getElementById("clear-queue-btn");
+
 const fileStatus = document.getElementById("file-status");
 const filePercent = document.getElementById("file-percent");
 const fileProgressBar = document.getElementById("file-progress-bar");
@@ -137,8 +159,21 @@ const clearLogBtn = document.getElementById("clear-log-btn");
 const saveDefaultsBtn = document.getElementById("save-defaults-btn");
 const resetDefaultsBtn = document.getElementById("reset-defaults-btn");
 
+// Application State
 let appConfig = {};
 let currentActionState = "analyze"; // "analyze" or "download"
+let currentPreviewInfo = null; // Store analyzed info
+let downloadQueue = [];
+let queueIsProcessing = false;
+
+function formatBytes(bytes, decimals = 2) {
+    if (!bytes) return 'N/A';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
 
 function initializeUI() {
     // 1. Tab Switching Logic
@@ -159,11 +194,12 @@ function initializeUI() {
     authMethod.addEventListener("change", updateAuthFieldVisibility);
     downloadSubtitles.addEventListener("change", updateSubtitleFieldVisibility);
     proxyEnabled.addEventListener("change", updateProxyFieldVisibility);
+    qualityPreset.addEventListener("change", updateCustomFormatsVisibility);
 
     // 3. Theme Toggle Listener
     themeToggle.addEventListener("click", toggleTheme);
 
-    // 4. Directory & File Selection Dialogs (Python callbacks)
+    // 4. Directory & File Selection Dialogs
     browseDirBtn.addEventListener("click", () => {
         if (typeof eel !== 'undefined') {
             eel.choose_directory()(path => {
@@ -193,6 +229,30 @@ function initializeUI() {
     clearLogBtn.addEventListener("click", () => {
         logConsole.textContent = "";
     });
+
+    // 8. Playlist Select/Deselect All
+    playlistSelectAll.addEventListener("click", () => togglePlaylistCheckboxes(true));
+    playlistDeselectAll.addEventListener("click", () => togglePlaylistCheckboxes(false));
+
+    // 9. Engine Auto-Update Trigger
+    updateEngineBtn.addEventListener("click", triggerEngineUpdate);
+
+    // 10. Queue Clear Trigger
+    clearQueueBtn.addEventListener("click", clearQueue);
+
+    // 11. GitHub Link Interceptor
+    const githubBtn = document.querySelector(".github-btn");
+    if (githubBtn) {
+        githubBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            const url = githubBtn.getAttribute("href");
+            if (typeof eel !== 'undefined' && typeof eel.open_link === 'function') {
+                eel.open_link(url);
+            } else {
+                window.open(url, "_blank");
+            }
+        });
+    }
 
     // Request initial config from Python
     if (typeof eel !== 'undefined') {
@@ -231,15 +291,40 @@ function updateProxyFieldVisibility() {
     }
 }
 
+function updateCustomFormatsVisibility() {
+    if (qualityPreset.value === "Custom Streams (Advanced)") {
+        customStreamsGroup.classList.remove("hidden");
+    } else {
+        customStreamsGroup.classList.add("hidden");
+    }
+}
+
+// Playlist Checkbox Helper
+function togglePlaylistCheckboxes(checked) {
+    const checkboxes = playlistList.querySelectorAll("input[type='checkbox']");
+    checkboxes.forEach(cb => cb.checked = checked);
+}
+
 // Theme Management
 function toggleTheme() {
     const isLight = document.body.classList.toggle("light-mode");
     const modeIcon = themeToggle.querySelector(".mode-icon");
     modeIcon.textContent = isLight ? "☀️" : "🌙";
     
-    // Save theme to python config
     if (typeof eel !== 'undefined') {
         eel.save_theme(isLight ? "Light" : "Dark");
+    }
+}
+
+// Trigger Core Engine Update
+function triggerEngineUpdate() {
+    updateEngineBtn.disabled = true;
+    updateEngineBtn.textContent = "Updating Core...";
+    engineStatus.textContent = "Updating...";
+    engineStatus.className = "badge updating";
+    
+    if (typeof eel !== 'undefined') {
+        eel.update_engine();
     }
 }
 
@@ -256,23 +341,123 @@ function handleActionButtonClick() {
     if (currentActionState === "analyze") {
         actionBtn.disabled = true;
         actionBtn.textContent = "Analyzing...";
-        append_log(`\n[INFO] Fetching video info for: ${url}\n`);
+        append_log(`\n[INFO] Fetching video details for: ${url}\n`);
 
         if (typeof eel !== 'undefined') {
             eel.analyze_url(url, currentConfig);
         }
     } else if (currentActionState === "download") {
-        actionBtn.disabled = true;
-        actionBtn.textContent = "Downloading...";
+        // Build Playlist items string if playlist is active
+        if (currentPreviewInfo && currentPreviewInfo.is_playlist) {
+            const checkedBoxes = playlistList.querySelectorAll("input[type='checkbox']:checked");
+            if (checkedBoxes.length === 0) {
+                append_log("[ERROR] No playlist items selected. Select at least one item to download.\n");
+                return;
+            }
+            const indices = Array.from(checkedBoxes).map(cb => cb.dataset.index);
+            currentConfig["playlist_items"] = indices.join(",");
+        }
+
+        // Custom Formats selection mapping
+        if (qualityPreset.value === "Custom Streams (Advanced)") {
+            currentConfig["video_format_id"] = customVideoFormat.value;
+            currentConfig["audio_format_id"] = customAudioFormat.value;
+        }
+
+        // Add to active download queue
+        const title = currentPreviewInfo ? currentPreviewInfo.title || url : url;
+        const queueItem = {
+            id: Date.now() + Math.random(),
+            url: url,
+            title: title,
+            status: "pending",
+            config: currentConfig
+        };
         
-        // Reset progress bars
-        update_progress(0, "Current File: Preparing...");
-        playlistProgressContainer.style.display = "none";
+        downloadQueue.push(queueItem);
+        updateQueueUI();
         
-        if (typeof eel !== 'undefined') {
-            eel.start_download(url, currentConfig);
+        append_log(`[INFO] Added to Queue: ${title}\n`);
+        
+        // Return UI immediately to analysis state so user can add more videos
+        reset_analyze_btn("Analyze URL");
+        urlInput.value = "";
+
+        // Trigger queue process if not active
+        if (!queueIsProcessing) {
+            processNextQueueItem();
         }
     }
+}
+
+// Process Next Queue Item
+function processNextQueueItem() {
+    const nextItem = downloadQueue.find(item => item.status === "pending");
+    if (!nextItem) {
+        queueIsProcessing = false;
+        return;
+    }
+
+    queueIsProcessing = true;
+    nextItem.status = "downloading";
+    updateQueueUI();
+
+    update_progress(0, `Downloading: ${nextItem.title}`);
+    playlistProgressContainer.style.display = "none";
+
+    append_log(`\n[INFO] Spawning download task for: ${nextItem.title}\n`);
+    if (typeof eel !== 'undefined') {
+        eel.start_download(nextItem.url, nextItem.config);
+    }
+}
+
+// Update Queue Interface
+function updateQueueUI() {
+    if (downloadQueue.length > 0) {
+        queueCard.classList.remove("hidden");
+    } else {
+        queueCard.classList.add("hidden");
+    }
+
+    queueCount.textContent = downloadQueue.length;
+    queueList.innerHTML = "";
+
+    downloadQueue.forEach(item => {
+        const itemDiv = document.createElement("div");
+        itemDiv.className = `queue-item ${item.status === 'downloading' ? 'active' : ''}`;
+        itemDiv.innerHTML = `
+            <div class="queue-item-info">
+                <span class="queue-item-title">${item.title}</span>
+                <span class="queue-item-url">${item.url}</span>
+            </div>
+            <div class="queue-item-actions">
+                <span class="queue-status-badge ${item.status}">${item.status}</span>
+                <button class="btn-remove-queue" title="Remove from queue" onclick="removeFromQueue(${item.id})">❌</button>
+            </div>
+        `;
+        queueList.appendChild(itemDiv);
+    });
+}
+
+// Remove Item from Queue
+window.removeFromQueue = function(id) {
+    const idx = downloadQueue.findIndex(item => item.id === id);
+    if (idx !== -1) {
+        const item = downloadQueue[idx];
+        if (item.status === "downloading") {
+            append_log("[WARNING] Cannot remove currently downloading item.\n");
+            return;
+        }
+        downloadQueue.splice(idx, 1);
+        updateQueueUI();
+    }
+};
+
+// Clear Queue
+function clearQueue() {
+    // Keep only downloading item
+    downloadQueue = downloadQueue.filter(item => item.status === "downloading");
+    updateQueueUI();
 }
 
 // Build Config object from current Form values
@@ -283,6 +468,9 @@ function buildConfigFromUI() {
         "video_codec": videoCodec.value,
         "audio_quality": audioQuality.value,
         "download_subtitles": downloadSubtitles.checked,
+        "embed_subtitles": embedSubtitles.checked,
+        "embed_metadata": embedMetadata.checked,
+        "embed_thumbnail": embedMetadata.checked, // Sync thumbnail with metadata tag embedding
         "subtitle_languages": subtitleLanguages.value,
         "auth_method": authMethod.value,
         "browser_name": browserName.value,
@@ -312,6 +500,8 @@ function set_initial_config(config) {
     videoCodec.value = config.video_codec || "Best Available";
     audioQuality.value = config.audio_quality || "192";
     downloadSubtitles.checked = !!config.download_subtitles;
+    embedSubtitles.checked = !!config.embed_subtitles;
+    embedMetadata.checked = !!config.embed_metadata;
     subtitleLanguages.value = config.subtitle_languages || "en";
     
     authMethod.value = config.auth_method || "Bypass (Client Emulation)";
@@ -323,7 +513,6 @@ function set_initial_config(config) {
     nodePath.value = config.node_path || "";
     filenameTemplate.value = config.filename_template || "%(title)s.%(ext)s";
 
-    // Set Theme
     const modeIcon = themeToggle.querySelector(".mode-icon");
     if (config.theme === "Light") {
         document.body.classList.add("light-mode");
@@ -333,35 +522,85 @@ function set_initial_config(config) {
         modeIcon.textContent = "🌙";
     }
 
-    // Trigger field visibility updates
     updateAuthFieldVisibility();
     updateSubtitleFieldVisibility();
     updateProxyFieldVisibility();
+    updateCustomFormatsVisibility();
 }
 
 eel.expose(update_preview);
 function update_preview(info) {
+    currentPreviewInfo = info;
     previewCard.classList.remove("hidden");
     
     videoThumbnail.src = info.thumbnail || "";
     videoTitle.textContent = info.title || "Unknown Title";
-    videoUploader.textContent = `👤 ${info.uploader || "Unknown Channel"}`;
-    videoViews.textContent = `👁️ ${info.views || "0"} views`;
     
-    if (info.duration) {
-        const min = Math.floor(info.duration / 60);
-        const sec = String(info.duration % 60).padStart(2, '0');
-        videoDuration.textContent = `${min}:${sec}`;
-        videoDuration.classList.remove("hidden");
-    } else {
-        videoDuration.classList.add("hidden");
-    }
-
     if (info.is_playlist) {
+        videoUploader.textContent = `📁 Playlist (${info.playlist_count} videos)`;
+        videoViews.textContent = "";
+        videoDuration.classList.add("hidden");
         playlistBadge.classList.remove("hidden");
-        playlistBadge.textContent = `📁 Playlist (${info.playlist_count} videos)`;
+        playlistBadge.textContent = `📁 Playlist`;
+        
+        // Populate Playlist Checklist
+        playlistCard.classList.remove("hidden");
+        playlistList.innerHTML = "";
+        info.entries.forEach(entry => {
+            const min = Math.floor(entry.duration / 60);
+            const sec = String(entry.duration % 60).padStart(2, '0');
+            const durStr = entry.duration ? `${min}:${sec}` : "N/A";
+            
+            const itemDiv = document.createElement("div");
+            itemDiv.className = "playlist-item";
+            itemDiv.innerHTML = `
+                <input type="checkbox" data-index="${entry.index}" checked>
+                <span class="playlist-item-title">${entry.index}. ${entry.title}</span>
+                <span class="playlist-item-duration">${durStr}</span>
+            `;
+            playlistList.appendChild(itemDiv);
+        });
+
+        // Clear formats selection since it is a playlist
+        qualityPreset.value = "Best Available (No Limit)";
+        updateCustomFormatsVisibility();
     } else {
+        videoUploader.textContent = `👤 ${info.uploader || "Unknown Channel"}`;
+        videoViews.textContent = `👁️ ${info.views || "0"} views`;
         playlistBadge.classList.add("hidden");
+        playlistCard.classList.add("hidden");
+
+        if (info.duration) {
+            const min = Math.floor(info.duration / 60);
+            const sec = String(info.duration % 60).padStart(2, '0');
+            videoDuration.textContent = `${min}:${sec}`;
+            videoDuration.classList.remove("hidden");
+        } else {
+            videoDuration.classList.add("hidden");
+        }
+
+        // Populate Custom Streams
+        customVideoFormat.innerHTML = '<option value="">Best Video Stream</option>';
+        info.video_formats.forEach(f => {
+            const opt = document.createElement("option");
+            opt.value = f.id;
+            opt.textContent = `${f.resolution} (${f.codec}) - ${formatBytes(f.size)} [.${f.ext}]`;
+            customVideoFormat.appendChild(opt);
+        });
+
+        customAudioFormat.innerHTML = '<option value="">Best Audio Stream</option>';
+        // Insert a dummy video bypass format if downloading audio only in custom streams
+        const optAudioOnly = document.createElement("option");
+        optAudioOnly.value = "audio_only";
+        optAudioOnly.textContent = "Audio Only (Extract MP3)";
+        customVideoFormat.insertBefore(optAudioOnly, customVideoFormat.firstChild);
+
+        info.audio_formats.forEach(f => {
+            const opt = document.createElement("option");
+            opt.value = f.id;
+            opt.textContent = `${f.bitrate} (${f.codec}) - ${formatBytes(f.size)} [.${f.ext}]`;
+            customAudioFormat.appendChild(opt);
+        });
     }
 
     // Shift state to download
@@ -378,6 +617,16 @@ function reset_analyze_btn(stateText = "Analyze URL") {
     actionBtn.textContent = stateText;
     actionBtn.className = "btn btn-primary";
     previewCard.classList.add("hidden");
+    playlistCard.classList.add("hidden");
+    currentPreviewInfo = null;
+
+    // Resolve queue task status
+    const downloadingItem = downloadQueue.find(item => item.status === "downloading");
+    if (downloadingItem) {
+        downloadingItem.status = "completed";
+        updateQueueUI();
+        processNextQueueItem(); // Automatically trigger next queue download!
+    }
 }
 
 eel.expose(update_progress);
@@ -400,4 +649,39 @@ eel.expose(append_log);
 function append_log(message) {
     logConsole.textContent += message;
     logConsole.scrollTop = logConsole.scrollHeight;
+
+    // Check for errors to mark queue task failed
+    if (message.includes("[CRITICAL ERROR]") || message.includes("[ERROR] Download failed")) {
+        const downloadingItem = downloadQueue.find(item => item.status === "downloading");
+        if (downloadingItem) {
+            downloadingItem.status = "failed";
+            updateQueueUI();
+            
+            // Clean up and proceed
+            currentActionState = "analyze";
+            actionBtn.disabled = false;
+            actionBtn.textContent = "Analyze URL";
+            actionBtn.className = "btn btn-primary";
+            previewCard.classList.add("hidden");
+            playlistCard.classList.add("hidden");
+            currentPreviewInfo = null;
+            
+            processNextQueueItem();
+        }
+    }
+}
+
+// Engine update callback
+eel.expose(engine_update_status);
+function engine_update_status(success, versionOrError) {
+    updateEngineBtn.disabled = false;
+    updateEngineBtn.textContent = "Update yt-dlp Core";
+    
+    if (success) {
+        engineStatus.textContent = `v${versionOrError}`;
+        engineStatus.className = "badge updated";
+    } else {
+        engineStatus.textContent = "Failed";
+        engineStatus.className = "badge failed";
+    }
 }

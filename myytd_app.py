@@ -1,5 +1,15 @@
 import os
 import sys
+
+# Support dynamic updates of yt-dlp by prioritizing 'updates' directory in path
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+updates_dir = os.path.join(app_dir, "updates")
+if os.path.exists(updates_dir) and updates_dir not in sys.path:
+    sys.path.insert(0, updates_dir)
+
 import json
 import threading
 import urllib.request
@@ -7,6 +17,8 @@ from io import BytesIO
 import customtkinter as ctk
 from tkinter import filedialog
 from yt_dlp import YoutubeDL
+import ytd_core
+
 
 # Try to import PIL for thumbnail support
 try:
@@ -96,6 +108,29 @@ class YTDlpSlickApp(ctk.CTk):
             font=("Arial", 22, "bold")
         )
         self.logo_label.pack(side="left", padx=10, pady=5)
+
+        # Version badge
+        self.version_badge = ctk.CTkLabel(
+            self.top_bar,
+            text="v1.1.0",
+            font=("Arial", 11),
+            text_color="gray"
+        )
+        self.version_badge.pack(side="left", padx=(0, 10), pady=(8, 0))
+
+        # GitHub Button
+        self.github_btn = ctk.CTkButton(
+            self.top_bar,
+            text="GitHub 🌐",
+            width=80,
+            command=self.open_github_link,
+            fg_color="transparent",
+            border_width=1,
+            border_color=("gray60", "gray30"),
+            text_color=("black", "white"),
+            hover_color=("gray80", "gray20")
+        )
+        self.github_btn.pack(side="left", padx=5, pady=5)
         
         # Theme Selector
         self.theme_var = ctk.StringVar(value=self.config.get("theme", "Dark"))
@@ -312,31 +347,17 @@ class YTDlpSlickApp(ctk.CTk):
 
     def fetch_video_info(self, url, config):
         try:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'js_runtimes': {'node': {}},
-            }
+            core_config = self.config.copy()
+            core_config.update({
+                "auth_method": config["auth_method"],
+                "browser_name": config["browser_name"],
+                "cookies_path": config["cookies"],
+                "proxy_enabled": config["use_proxy"],
+                "proxy_url": config["proxy_url"]
+            })
             
-            # Apply Authentication / Cookies
-            auth_method = config.get("auth_method")
-            if auth_method == "Browser Cookies (Auto)":
-                ydl_opts['cookiesfrombrowser'] = (config.get("browser_name", "chrome"),)
-            elif auth_method == "Cookie File (Manual)":
-                cookies = config.get("cookies", "")
-                if os.path.exists(cookies):
-                    ydl_opts['cookiefile'] = cookies
-            else:  # Bypass (Client Emulation)
-                ydl_opts['extractor_args'] = {
-                    'youtube': {
-                        'player_client': ['android_vr'],
-                    }
-                }
-            
-            # Apply proxy
-            if config["use_proxy"]:
-                ydl_opts['proxy'] = config["proxy_url"]
+            ytd_core.setup_environment(core_config)
+            ydl_opts = ytd_core.get_ytdl_opts(core_config, is_download=False)
             
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -420,13 +441,7 @@ class YTDlpSlickApp(ctk.CTk):
 
     # --- CONFIG MANAGEMENT ---
     def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    return {**DEFAULT_CONFIG, **json.load(f)}
-            except (json.JSONDecodeError, OSError, ValueError):
-                return DEFAULT_CONFIG.copy()
-        return DEFAULT_CONFIG.copy()
+        return ytd_core.load_config()
     
     def save_config(self):
         self.config = {
@@ -445,12 +460,11 @@ class YTDlpSlickApp(ctk.CTk):
             "filename_template": self.template_entry.get(),
             "theme": self.theme_var.get()
         }
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=4)
+        ytd_core.save_config(self.config)
         self.write_log("[INFO] Configuration saved successfully!\n")
     
     def reset_config(self):
-        self.config = DEFAULT_CONFIG.copy()
+        self.config = ytd_core.DEFAULT_CONFIG.copy()
         self.apply_config_to_ui()
         self.write_log("[INFO] Configuration reset to defaults.\n")
     
@@ -493,6 +507,10 @@ class YTDlpSlickApp(ctk.CTk):
     def change_appearance_mode(self, new_appearance_mode):
         ctk.set_appearance_mode(new_appearance_mode)
 
+    def open_github_link(self):
+        import webbrowser
+        webbrowser.open("https://github.com/AmiraliNotFound/local_ytdl_gui")
+
     # --- FILE DIALOGS ---
     def browse_dir(self):
         folder = filedialog.askdirectory()
@@ -525,7 +543,6 @@ class YTDlpSlickApp(ctk.CTk):
         self.is_downloading = True
         self.action_btn.configure(state="disabled", text="Downloading...")
         
-        # Read ALL widget values here in the main thread
         download_config = {
             "quality_preset": self.quality_var.get(),
             "codec_pref": self.codec_var.get(),
@@ -546,7 +563,6 @@ class YTDlpSlickApp(ctk.CTk):
     def execute_download(self, url, config):
         self.write_log(f"\n--- Starting Job: {url} ---\n")
         
-        # Validate output directory exists
         out_dir = config["out_dir"]
         if not os.path.isdir(out_dir):
             try:
@@ -558,95 +574,45 @@ class YTDlpSlickApp(ctk.CTk):
                 self.after(0, lambda: self.action_btn.configure(state="normal", text="Start Download"))
                 return
         
-        current_dir = os.getcwd()
+        core_config = self.config.copy()
+        core_config.update({
+            "output_dir": config["out_dir"],
+            "quality_preset": config["quality_preset"],
+            "video_codec": config["codec_pref"],
+            "audio_quality": config["audio_quality"],
+            "download_subtitles": config["dl_subs"],
+            "subtitle_languages": config["sub_langs"],
+            "auth_method": config["auth_method"],
+            "browser_name": config["browser_name"],
+            "cookies_path": config["cookies"],
+            "proxy_enabled": config["use_proxy"],
+            "proxy_url": config["proxy_url"],
+            "filename_template": config["template"]
+        })
         
-        # 2. Build Options with Enhanced Quality
-        quality_preset = config["quality_preset"]
-        codec_pref = config["codec_pref"]
-        audio_quality = config["audio_quality"]
-        out_tmpl = os.path.join(config["out_dir"], config["template"])
+        ytd_core.setup_environment(core_config)
         
-        ydl_opts = {
-            'outtmpl': out_tmpl,
-            'yes_playlist': True,
-            'ignoreerrors': True,
-            'no_warnings': False,
-            'quiet': True,
-            'js_runtimes': {'node': {}},
-            'logger': GUILogger(self.write_log),
-            'progress_hooks': [self.hook_routing],
-            'retries': 20,
-            'fragment_retries': 20,
-            'retry_sleep_functions': {'http': lambda n: 10 * (n + 1)},
-            'sleep_interval': 3,  # Increased sleep to be safer
-            'max_sleep_interval': 10,
-            'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'},
-        }
-
-        # Set ffmpeg location only if found
-        ffmpeg_path = os.path.join(current_dir, "ffmpeg.exe")
-        if os.path.exists(ffmpeg_path):
-            ydl_opts['ffmpeg_location'] = current_dir
-
-
-
-        # Apply Auth / Cookies
-        auth_method = config["auth_method"]
-        if auth_method == "Browser Cookies (Auto)":
-            browser = config["browser_name"]
-            ydl_opts['cookiesfrombrowser'] = (browser,)
-            self.write_log(f"[INFO] Extracting cookies from browser: {browser}\n")
-        elif auth_method == "Cookie File (Manual)":
-            cookies = config["cookies"]
-            if os.path.exists(cookies):
-                ydl_opts['cookiefile'] = cookies
-                self.write_log(f"[INFO] Using cookies file: {cookies}\n")
-            else:
-                self.write_log("[WARNING] Cookie file not found. May fail Bot-Check.\n")
-        else:  # Bypass (Client Emulation)
-            # Remove desktop user agent so emulated clients use their proper signatures
-            if 'http_headers' in ydl_opts:
-                ydl_opts['http_headers'].pop('User-Agent', None)
-            ydl_opts['extractor_args'] = {
-                'youtube': {
-                    'player_client': ['android_vr'],
-                }
-            }
+        ydl_opts = ytd_core.get_ytdl_opts(
+            core_config,
+            is_download=True,
+            progress_hooks=[self.hook_routing],
+            logger=GUILogger(self.write_log)
+        )
+        
+        if core_config["auth_method"] != "Bypass (Client Emulation)":
+            ydl_opts['http_headers'] = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'}
+            self.write_log("[INFO] Using browser agent for browser extraction / manual cookies.\n")
+        else:
             self.write_log("[INFO] Running with no cookies. Emulating Android VR client to bypass bot detection.\n")
 
-        # Apply Proxy
-        if config["use_proxy"]:
-            ydl_opts['proxy'] = config["proxy_url"]
-            self.write_log(f"Routing through Proxy: {ydl_opts['proxy']}\n")
-        
-        # Build format string based on quality preset and codec
-        if "Audio Only" in quality_preset:
-            # Audio only mode
-            ydl_opts['format'] = 'bestaudio/best'
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': audio_quality,
-            }]
-            self.write_log(f"[INFO] Audio-only mode: {audio_quality} kbps MP3\n")
+        if core_config["proxy_enabled"]:
+            self.write_log(f"Routing through Proxy: {ydl_opts.get('proxy')}\n")
+            
+        if "Audio Only" in config["quality_preset"]:
+            self.write_log(f"[INFO] Audio-only mode: {config['audio_quality']} kbps MP3\n")
         else:
-            # Video mode - build format string
-            format_str = self.build_format_string(quality_preset, codec_pref)
-            ydl_opts['format'] = format_str
-            ydl_opts['merge_output_format'] = 'mp4'
-            self.write_log(f"[INFO] Video mode: {quality_preset} with {codec_pref}\n")
-            self.write_log(f"[DEBUG] Format string: {format_str}\n")
-        
-        # Subtitle options
-        if config["dl_subs"]:
-            ydl_opts['writesubtitles'] = True
-            ydl_opts['writeautomaticsub'] = True
-            sub_langs = config["sub_langs"]
-            if sub_langs:
-                ydl_opts['subtitleslangs'] = [lang.strip() for lang in sub_langs.split(',')]
-            self.write_log(f"[INFO] Subtitles enabled: {sub_langs or 'all available'}\n")
+            self.write_log(f"[INFO] Video mode: {config['quality_preset']} with {config['codec_pref']}\n")
 
-        # 3. Execution
         try:
             with YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
@@ -658,51 +624,6 @@ class YTDlpSlickApp(ctk.CTk):
             self.after(0, lambda: self.action_btn.configure(state="normal", text="Analyze URL", fg_color=["#3B8ED0", "#1F6AA5"], hover_color=["#367E96", "#144870"]))
             self.after(0, lambda: self.file_lbl.configure(text="Current File: Idle"))
             self.after(0, lambda: self.file_bar.set(0))
-    
-    def build_format_string(self, quality_preset, codec_pref):
-        """Build optimized format string for maximum quality"""
-        
-        # Determine resolution limit
-        if "Best Available" in quality_preset:
-            height_limit = ""
-        elif "4K" in quality_preset:
-            height_limit = "[height<=2160]"
-        elif "1080p" in quality_preset:
-            height_limit = "[height<=1080]"
-        elif "720p" in quality_preset:
-            height_limit = "[height<=720]"
-        elif "480p" in quality_preset:
-            height_limit = "[height<=480]"
-        else:
-            height_limit = "[height<=1080]"
-        
-        # Build codec preference
-        codec_filter = ""
-        if "VP9" in codec_pref:
-            codec_filter = "[vcodec^=vp9]"
-        elif "AV1" in codec_pref:
-            codec_filter = "[vcodec^=av01]"
-        elif "H.264" in codec_pref:
-            codec_filter = "[vcodec^=avc1]"
-        elif "H.265" in codec_pref or "HEVC" in codec_pref:
-            codec_filter = "[vcodec^=hev1]"
-        
-        # Build the format string
-        # Strategy: Try preferred codec first, then fallback to best available
-        if codec_filter and height_limit:
-            # Specific codec + resolution
-            format_str = f"bestvideo{height_limit}{codec_filter}+bestaudio/bestvideo{height_limit}+bestaudio/best"
-        elif codec_filter:
-            # Specific codec, any resolution
-            format_str = f"bestvideo{codec_filter}+bestaudio/bestvideo+bestaudio/best"
-        elif height_limit:
-            # Specific resolution, any codec (prioritize best quality)
-            format_str = f"bestvideo{height_limit}+bestaudio/best"
-        else:
-            # Best available everything
-            format_str = "bestvideo+bestaudio/best"
-        
-        return format_str
 
     # --- LIVE HOOK UPDATES ---
     def hook_routing(self, d):
@@ -715,7 +636,6 @@ class YTDlpSlickApp(ctk.CTk):
                 speed = d.get('_speed_str', 'N/A')
                 eta = d.get('_eta_str', 'N/A')
                 
-                # Simple layout without emojis or title to prevent rendering issues in Tkinter
                 lbl_text = f"Downloading: {percent * 100:.1f}%  |  Speed: {speed}  |  ETA: {eta}"
                 self.after(0, self.update_bars, percent, lbl_text)
                 
@@ -740,3 +660,4 @@ class YTDlpSlickApp(ctk.CTk):
 if __name__ == "__main__":
     app = YTDlpSlickApp()
     app.mainloop()
+

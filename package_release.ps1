@@ -15,9 +15,12 @@ if (Test-Path $ZipName) {
 }
 New-Item -ItemType Directory -Path $ReleaseDir | Out-Null
 
+Write-Host "=== Building Application (Calling build.ps1) ===" -ForegroundColor Cyan
+& .\build.ps1
+
 Write-Host "=== Copying Application Executables ===" -ForegroundColor Cyan
 if (-not (Test-Path "dist/ytd_webview_app.exe") -or -not (Test-Path "dist/ytd_webview_backend.exe")) {
-    Write-Error "Could not find executables in dist/ folder. Please build the project first."
+    Write-Error "Could not find executables in dist/ folder even after building. Please check build errors."
 }
 Copy-Item "dist/ytd_webview_app.exe" -Destination "$ReleaseDir/ytd_webview_app.exe"
 Copy-Item "dist/ytd_webview_backend.exe" -Destination "$ReleaseDir/ytd_webview_backend.exe"

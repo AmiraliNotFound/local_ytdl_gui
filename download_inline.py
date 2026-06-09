@@ -1,49 +1,43 @@
 import sys
 import os
+
+# Support dynamic updates of yt-dlp by prioritizing 'updates' directory in path
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+updates_dir = os.path.join(app_dir, "updates")
+if os.path.exists(updates_dir) and updates_dir not in sys.path:
+    sys.path.insert(0, updates_dir)
+
 from yt_dlp import YoutubeDL
+import ytd_core
 
 def download_video(url, auth_method="bypass", browser_name="chrome", cookies_path="youtube_cookies.txt"):
-    ydl_opts = {
-        'yes_playlist': True,
-        'ignoreerrors': False,  # Changed to False so we raise actual errors during debug/loop
-        'no_warnings': False,
-        'quiet': False,
-        'js_runtimes': {'node': {}},
-        'verbose': True,
-        'retries': 20,
-        'fragment_retries': 20,
-        'retry_sleep_functions': {'http': lambda n: 10 * (n + 1)},
-        'sleep_interval': 3,
-        'max_sleep_interval': 10,
-        'format': 'bestvideo[height<=360]+bestaudio/best',  # Limit resolution for quick loop verification
+    # Translate arguments to standard config format
+    config = {
+        "auth_method": "Bypass (Client Emulation)" if auth_method == "bypass"
+                       else "Browser Cookies (Auto)" if auth_method == "browser"
+                       else "Cookie File (Manual)",
+        "browser_name": browser_name,
+        "cookies_path": cookies_path,
+        "quality_preset": "480p",  # default limit
+        "video_codec": "Best Available",
+        "audio_quality": "192",
+        "download_subtitles": False,
+        "proxy_enabled": False,
+        "filename_template": "%(title)s.%(ext)s"
     }
 
-    if auth_method == "browser":
-        ydl_opts['cookiesfrombrowser'] = (browser_name,)
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_skip': ['webpage', 'configs'],
-            }
-        }
-        print(f"[INFO] Extracting cookies from browser: {browser_name}")
-    elif auth_method == "manual":
-        if os.path.exists(cookies_path):
-            ydl_opts['cookiefile'] = cookies_path
-            print(f"[INFO] Using cookies file: {cookies_path}")
-        else:
-            print(f"[WARNING] Cookies file '{cookies_path}' not found. Running without cookies.")
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_skip': ['webpage', 'configs'],
-            }
-        }
-    else:  # bypass
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['android_vr'],
-            }
-        }
-        print("[INFO] Running with no cookies. Emulating Android VR client to bypass bot detection.")
+    # Setup environment PATH
+    ytd_core.setup_environment(config)
+
+    # Get base options and override for CLI verbose output
+    ydl_opts = ytd_core.get_ytdl_opts(config, is_download=True)
+    ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best'  # Keep small resolution for testing
+    ydl_opts['ignoreerrors'] = False  # Raise actual errors during debug/CLI execution
+    ydl_opts['quiet'] = False
+    ydl_opts['verbose'] = True
 
     print(f"[INFO] Starting download for: {url}")
     try:
